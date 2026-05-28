@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+msal
+python-dotenv
+httpx
+tenacity
+pydantic
+antropic
+tenacity
