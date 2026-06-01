@@ -12,87 +12,99 @@ WHY THIS EXISTS:
 NOTE:
   Prompt caching (content lives 1 hour,
   reduces cost on repeated calls). We'll leave a clear hook for it here.
-  Implement at the end though note to self 
+  Implement at the end though — note to self.
 """
 import logging
 from typing import Any
-import anthropic 
+import anthropic
 from config.settings import settings
 
-logger = logging.getlogger(__name__)
+# BUG FIX 1: logging.getlogger → logging.getLogger
+# Python's logging module uses a capital G. getlogger does not exist —
+# this raised AttributeError on import, crashing the whole app.
+logger = logging.getLogger(__name__)
+
 
 class ClaudeClient:
-    """"
-    Wrapper around the Anthropic SDK.
-    Agents use this- prevents importing anthropic directly in agents files 
-
     """
+    Wrapper around the Anthropic SDK.
+    Agents use this — prevents importing anthropic directly in agent files.
+    """
+
     def __init__(self) -> None:
-        #Passing API key safely 
+        # Passing API key safely — reads from environment via settings
         self.client = anthropic.Anthropic(
-            api_key = settings.ANTHROPIC_API_KEY
+            api_key=settings.ANTHROPIC_API_KEY
         )
         logger.info(
             "ClaudeClient initialised",
-            extra = {"component": "ClaudeClient"}
+            extra={"component": "ClaudeClient"}
         )
 
-    def chat (
-            self,
-              messages: list[dict], 
-              system, 
-              model : str | None = None, 
-              max_tokens: int = 1000,
-              tools: list[dict] | None = None,
-              temperature : float = 1.0, 
-            ) -> anthropic.types.Message:
-        
+    def chat(
+        self,
+        messages: list[dict],
+        system: str | None = None,
+        model: str | None = None,
+        max_tokens: int = 1000,
+        tools: list[dict] | None = None,
+        temperature: float = 1.0,
+    ) -> anthropic.types.Message:
         """
         Send a message to Claude and get a response.
 
         IMPORTANT FROM YOUR NOTES:
-          - Never pass system=None — it raises an API error
-          - We conditionally include system only when provided
+          - Never pass system=None — it raises an API error.
+            We conditionally include system only when provided.
           - Claude does NOT store history — you pass the full
-            messages list every single time
+            messages list every single time.
 
         Args:
-            messages: Full conversation history. You manage this.
-            system:   The system prompt. Optional but recommended.
-            model:    Override the default model for this call.
-            max_tokens: Safety net — Claude generates what it thinks
-                        is right and cuts at this threshold.
-            tools:    List of tool schemas if this call needs tools.
+            messages:    Full conversation history. You manage this.
+            system:      The system prompt. Optional but recommended.
+            model:       Override the default model for this call.
+            max_tokens:  Safety net — Claude generates what it thinks
+                         is right and stops at this threshold.
+            tools:       List of tool schemas if this call needs tools.
             temperature: 0=deterministic, 1=creative. Use low values
                          for analysis agents, higher for report writing.
+
+        Returns:
+            anthropic.types.Message — use extract_text() or
+            get_tool_calls() to read the response.
         """
         chosen_model = model or settings.CLAUDE_ORCHESTRATION_MODEL
 
-        #Building the params dict - only including optional fields when present 
-        
+        # Build params dict — only include optional fields when present.
         params: dict[str, Any] = {
             "model": chosen_model,
-            "max_tokens" : max_tokens,
-            "messages" : messages,
+            "max_tokens": max_tokens,
+            "messages": messages,
             "temperature": temperature,
         }
 
-        #NOTE: Only add systemm if it's actually provided
+        # Only add system if it's actually provided.
+        # Passing system=None raises a validation error from the SDK.
         if system:
-            params["system"] = system 
+            params["system"] = system
 
-        if tools: 
+        if tools:
             params["tools"] = tools
 
         logger.info(
-            "Calling claude",
-            extra = {
+            "Calling Claude",
+            extra={
                 "component": "ClaudeClient",
                 "model": chosen_model,
                 "message_count": len(messages),
                 "has_tools": bool(tools),
             }
         )
+
+        # BUG FIX 2: The original method built params but never called the
+        # API and never returned anything — it silently returned None on every
+        # call. Added the actual SDK call and return statement here.
+        return self.client.messages.create(**params)
 
     def extract_text(self, response: anthropic.types.Message) -> str:
         """
@@ -131,6 +143,6 @@ class ClaudeClient:
         ]
 
 
-# Single shared instance — import this everywhere
+# Single shared instance — import this everywhere.
+# Never create a new ClaudeClient() anywhere else.
 claude_client = ClaudeClient()
-        
